@@ -62,7 +62,7 @@ To apply migrations:
 docker-compose exec app alembic upgrade head
 ```
 
-## 🔌 API Endpoints
+## API Endpoints
 
 ### Leads
 
