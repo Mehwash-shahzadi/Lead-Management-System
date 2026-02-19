@@ -1,16 +1,17 @@
 import sys
 from pathlib import Path
-from logging.config import fileConfig
-from sqlalchemy import engine_from_config, pool
-from alembic import context
 
-# Add project root to path
+# Add project root to path BEFORE importing app modules
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.config import settings
-from app.models import Base  # Import your SQLAlchemy models here
+from logging.config import fileConfig  # noqa: E402
+from sqlalchemy import engine_from_config, pool  # noqa: E402
+from alembic import context  # noqa: E402
+from app.core.config import settings  # noqa: E402
+from app.models import Base  # noqa: E402
+
 
 config = context.config
 
@@ -48,10 +49,7 @@ def run_migrations_online():
     )
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection,
-            target_metadata=target_metadata,
-        )
+        context.configure(connection=connection, target_metadata=target_metadata)
 
         with context.begin_transaction():
             context.run_migrations()

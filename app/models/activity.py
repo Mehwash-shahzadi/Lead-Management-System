@@ -4,11 +4,30 @@ from sqlalchemy.orm import relationship
 from app.models.base import Base
 from sqlalchemy.sql import func
 
+
 class LeadActivity(Base):
+    """Communication or interaction event between an agent and a lead.
+
+    Records event type (call, email, whatsapp, viewing, meeting,
+    offer_made), outcome (positive/negative/neutral), and timestamp.
+    Used by the scoring engine to adjust lead scores and by analytics
+    to compute response-time and conversion metrics.
+    """
+
     __tablename__ = "lead_activities"
-    activity_id = Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
-    lead_id = Column(UUID(as_uuid=True), ForeignKey("leads.lead_id", ondelete="CASCADE"), nullable=False)
-    agent_id = Column(UUID(as_uuid=True), ForeignKey("agents.agent_id", ondelete="CASCADE"), nullable=False)
+    activity_id = Column(
+        UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
+    )
+    lead_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("leads.lead_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    agent_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("agents.agent_id", ondelete="CASCADE"),
+        nullable=False,
+    )
     type = Column(String(50), nullable=False)
     notes = Column(Text)
     outcome = Column(String(20))
@@ -18,6 +37,12 @@ class LeadActivity(Base):
     agent = relationship("Agent", back_populates="activities")
 
     __table_args__ = (
-        CheckConstraint("type IN ('call', 'email', 'whatsapp', 'viewing', 'meeting', 'offer_made')", name="ck_activity_type"),
-        CheckConstraint("outcome IN ('positive', 'negative', 'neutral') OR outcome IS NULL", name="ck_activity_outcome"),
+        CheckConstraint(
+            "type IN ('call', 'email', 'whatsapp', 'viewing', 'meeting', 'offer_made')",
+            name="ck_activity_type",
+        ),
+        CheckConstraint(
+            "outcome IN ('positive', 'negative', 'neutral') OR outcome IS NULL",
+            name="ck_activity_outcome",
+        ),
     )

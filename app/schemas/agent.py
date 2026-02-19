@@ -1,30 +1,18 @@
-from pydantic import BaseModel, Field
+from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
-from datetime import datetime
-from enum import Enum
+
+from pydantic import BaseModel, Field
+
+from app.schemas.follow_up import PendingTask
 
 
-class DateRange(str, Enum):
-    seven_days = "7d"
-    thirty_days = "30d"
-    ninety_days = "90d"
-    custom = "custom"
+class AgentBasicOut(BaseModel):
+    """Minimal agent info returned inside lead-capture responses."""
 
-
-class StatusFilter(str, Enum):
-    all = "all"
-    active = "active"
-    converted = "converted"
-    lost = "lost"
-
-
-class SourceFilter(str, Enum):
-    all = "all"
-    bayut = "bayut"
-    propertyFinder = "propertyFinder"
-    dubizzle = "dubizzle"
-    website = "website"
+    agent_id: UUID
+    name: str
+    phone: str
 
 
 class AgentSummary(BaseModel):
@@ -44,14 +32,6 @@ class RecentLead(BaseModel):
     score: int
     last_activity: Optional[datetime] = None
     next_follow_up: Optional[datetime] = None
-
-
-class PendingTask(BaseModel):
-    task_id: UUID
-    lead_name: str
-    task_type: str  # "call|email|whatsapp|viewing"
-    due_date: datetime
-    priority: str  # "high|medium|low"
 
 
 class PerformanceMetrics(BaseModel):

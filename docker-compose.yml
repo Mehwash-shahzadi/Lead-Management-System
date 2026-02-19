@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: thinkreality_db
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -31,9 +31,10 @@ services:
     build: .
     container_name: thinkreality_app
     environment:
-      DATABASE_URL: ${DATABASE_URL}
-      DEBUG: "${DEBUG}"
-      LOG_LEVEL: ${LOG_LEVEL}
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/thinkreality_db
+      REDIS_URL: redis://redis:6379/0
+      DEBUG: "false"
+      LOG_LEVEL: INFO
     ports:
       - "8000:8000"
     depends_on:
@@ -43,7 +44,16 @@ services:
         condition: service_healthy
     volumes:
       - .:/app
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command:
+      [
+        "uvicorn",
+        "app.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--reload",
+      ]
 
 volumes:
   postgres_data:
