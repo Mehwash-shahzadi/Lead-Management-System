@@ -3,13 +3,12 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from uuid import uuid4
+from uuid import UUID
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy import select, text
 
-from app.config import settings
+from app.core.config import settings
 from app.models import (
-    Base,
     Lead,
     Agent,
     LeadAssignment,
@@ -19,10 +18,21 @@ from app.models import (
     LeadSource,
     LeadConversionHistory,
 )
+from app.models.scoring_rule import LeadScoringRule
+from app.schemas.common import SourceType
+from app.core.default_scoring_rules import DEFAULT_SCORING_RULES
 
-
-SOURCE_TYPES = ["bayut", "propertyFinder", "dubizzle", "website", "walk_in", "referral"]
-STATUS_VALUES = ["new", "contacted", "qualified", "viewing_scheduled", "negotiation", "converted", "lost"]
+# Derived from the single source of truth — SourceType enum in common.py
+SOURCE_TYPES = [s.value for s in SourceType]
+STATUS_VALUES = [
+    "new",
+    "contacted",
+    "qualified",
+    "viewing_scheduled",
+    "negotiation",
+    "converted",
+    "lost",
+]
 ACTIVITY_TYPES = ["call", "email", "whatsapp", "viewing", "meeting", "offer_made"]
 OUTCOMES = ["positive", "negative", "neutral"]
 TASK_TYPES = ["call", "email", "whatsapp", "viewing"]
@@ -31,27 +41,50 @@ PRIORITIES = ["high", "medium", "low"]
 
 async def seed():
     engine = create_async_engine(settings.DATABASE_URL, echo=False)
-    session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    session_maker = async_sessionmaker(
+        engine, class_=AsyncSession, expire_on_commit=False
+    )
 
     async with session_maker() as session:
         print("Seeding Day 1 sample data (PDF compliant)")
 
-        # Clear existing data to allow re-running the seed
-        await session.execute(text("DELETE FROM lead_conversion_history"))
-        await session.execute(text("DELETE FROM lead_property_interests"))
-        await session.execute(text("DELETE FROM follow_up_tasks"))
-        await session.execute(text("DELETE FROM lead_activities"))
-        await session.execute(text("DELETE FROM lead_assignments"))
-        await session.execute(text("DELETE FROM lead_sources"))
-        await session.execute(text("DELETE FROM leads"))
-        await session.execute(text("DELETE FROM agents"))
+        # Clear existing data to allow re-running the seed.
+        # TRUNCATE ... CASCADE is atomic and handles FK ordering
+        # automatically, unlike individual DELETE FROM statements.
+        await session.execute(
+            text(
+                "TRUNCATE TABLE "
+                "lead_conversion_history, "
+                "lead_property_interests, "
+                "follow_up_tasks, "
+                "lead_activities, "
+                "lead_assignments, "
+                "lead_sources, "
+                "leads, "
+                "agents, "
+                "lead_scoring_rules "
+                "CASCADE"
+            )
+        )
         await session.commit()
         print("Cleared existing data")
+
+        # 0. Lead Scoring Rules — sourced from the single source of truth
+        #    (default_scoring_rules.py) so seed and production always agree.
+        scoring_rules = [LeadScoringRule(**rule) for rule in DEFAULT_SCORING_RULES]
+        for rule in scoring_rules:
+            session.add(rule)
+        await session.flush()
+        print(f"Created {len(scoring_rules)} lead scoring rules")
 
         # 1. Agents (10+ with different specializations)
         agents = []
         specs = [
-            (["apartment", "villa"], ["Downtown Dubai", "Marina"], ["arabic", "english"]),
+            (
+                ["apartment", "villa"],
+                ["Downtown Dubai", "Marina"],
+                ["arabic", "english"],
+            ),
             (["villa", "townhouse"], ["Palm Jumeirah"], ["arabic", "english"]),
             (["commercial"], ["Business Bay"], ["english"]),
             (["apartment"], ["JBR", "Downtown Dubai"], ["arabic", "french"]),
@@ -99,11 +132,13 @@ async def seed():
                 first_name=["Ahmed", "Fatima", "Mohammed", "Layla", "Hassan"][i % 5],
                 last_name=["Al Mansoori", "Khan", "Al Naqbi", "Patel", "Smith"][i % 5],
                 email=f"lead{i}@example.com",
-                phone=f"+97150{i%10}{500000 + i:06d}",
+                phone=f"+97150{i % 10}{500000 + i:06d}",
                 nationality=nationalities[i % len(nationalities)],
                 language_preference=languages[i % 2],
                 budget_min=Decimal(budgets_min[i % len(budgets_min)]),
-                budget_max=Decimal(budgets_min[i % len(budgets_min)] + 400000 + (i % 8) * 100000),
+                budget_max=Decimal(
+                    budgets_min[i % len(budgets_min)] + 400000 + (i % 8) * 100000
+                ),
                 property_type=property_types[i % len(property_types)],
                 preferred_areas=areas_lists[i % len(areas_lists)],
                 status=STATUS_VALUES[i % len(STATUS_VALUES)],
@@ -137,7 +172,7 @@ async def seed():
                 lead_id=lead.lead_id,
                 agent_id=agent.agent_id,
                 type=ACTIVITY_TYPES[i % len(ACTIVITY_TYPES)],
-                notes=f"Activity {i+1}",
+                notes=f"Activity {i + 1}",
                 outcome=OUTCOMES[i % len(OUTCOMES)],
                 activity_at=datetime.now(timezone.utc) - timedelta(days=45 - (i % 45)),
             )
@@ -164,12 +199,36 @@ async def seed():
         print(f"Created {len(tasks)} follow-up tasks")
 
         # 7. Property interests ≥20
+        #    Use a deterministic pool of property UUIDs so that multiple
+        #    leads share the same property_ids.  This enables the
+        #    collaborative-filtering suggestion query to return real
+        #    results for typical lead-capture payloads.
+        property_pool = [
+            # Apartments – Downtown Dubai / Marina / JBR
+            UUID("a0000001-0001-4000-8000-000000000001"),
+            UUID("a0000001-0001-4000-8000-000000000002"),
+            UUID("a0000001-0001-4000-8000-000000000003"),
+            UUID("a0000001-0001-4000-8000-000000000004"),
+            # Villas – Palm Jumeirah / Arabian Ranches
+            UUID("b0000002-0002-4000-8000-000000000001"),
+            UUID("b0000002-0002-4000-8000-000000000002"),
+            UUID("b0000002-0002-4000-8000-000000000003"),
+            # Townhouses – Dubai Hills Estate
+            UUID("c0000003-0003-4000-8000-000000000001"),
+            UUID("c0000003-0003-4000-8000-000000000002"),
+            # Commercial – Business Bay
+            UUID("d0000004-0004-4000-8000-000000000001"),
+            UUID("d0000004-0004-4000-8000-000000000002"),
+        ]
         interests = []
-        for i in range(30):
+        for i in range(60):
             lead = leads[i % len(leads)]
+            # Rotate through the pool so each property gets interest
+            # from several leads with varying interest levels.
+            prop_id = property_pool[i % len(property_pool)]
             interest = LeadPropertyInterest(
                 lead_id=lead.lead_id,
-                property_id=uuid4(),
+                property_id=prop_id,
                 interest_level=["high", "medium", "low"][i % 3],
             )
             session.add(interest)
@@ -177,16 +236,35 @@ async def seed():
         await session.flush()
         print(f"Created {len(interests)} property interests")
 
-        # 8. Conversion history — various outcomes
+        # 8. Conversion history — various outcomes with deal_value data
         history = []
+        conversion_types = ["sale", "rental", "lost"]
+        deal_values = [
+            Decimal("850000"),
+            Decimal("1200000"),
+            Decimal("2500000"),
+            Decimal("4800000"),
+            Decimal("750000"),
+            Decimal("950000"),
+            Decimal("3200000"),
+            Decimal("1800000"),
+        ]
         for i in range(40):
             lead = leads[i % len(leads)]
+            conv_type = conversion_types[i % len(conversion_types)]
             hist = LeadConversionHistory(
                 lead_id=lead.lead_id,
                 status_from="new",
                 status_to=lead.status,
                 changed_at=datetime.now(timezone.utc) - timedelta(days=60 - (i % 60)),
                 agent_id=agents[i % len(agents)].agent_id,
+                deal_value=(
+                    deal_values[i % len(deal_values)]
+                    if conv_type in ("sale", "rental")
+                    else None
+                ),
+                conversion_type=conv_type,
+                property_id=None,
             )
             session.add(hist)
             history.append(hist)
@@ -198,7 +276,7 @@ async def seed():
             src = LeadSource(
                 lead_id=lead.lead_id,
                 source_type=lead.source_type,
-                campaign_id=f"camp_{lead.source_type}_{i%5}",
+                campaign_id=f"camp_{lead.source_type}_{i % 5}",
                 utm_source=f"utm_{lead.source_type}",
             )
             session.add(src)
@@ -207,9 +285,26 @@ async def seed():
 
         await session.commit()
 
+        # Update active_leads_count for all agents based on assigned non-terminal leads
+        await session.execute(
+            text("""
+            UPDATE agents SET active_leads_count = (
+                SELECT COUNT(*)
+                FROM lead_assignments la
+                JOIN leads l ON la.lead_id = l.lead_id
+                WHERE la.agent_id = agents.agent_id
+                AND l.status NOT IN ('converted', 'lost')
+            )
+            """)
+        )
+        await session.commit()
+        print("Updated agent active_leads_count values")
+
         # Validation
         lead_cnt = (await session.execute(select(Lead))).scalars().all().__len__()
-        ass_cnt = (await session.execute(select(LeadAssignment))).scalars().all().__len__()
+        ass_cnt = (
+            (await session.execute(select(LeadAssignment))).scalars().all().__len__()
+        )
         unassigned = lead_cnt - ass_cnt
 
         print("\nValidation:")

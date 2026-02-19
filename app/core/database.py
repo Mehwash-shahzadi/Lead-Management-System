@@ -1,13 +1,21 @@
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.pool import NullPool
-from app.config import settings
+from sqlalchemy.ext.asyncio import (
+    create_async_engine,
+    AsyncSession,
+    async_sessionmaker,
+)
+from sqlalchemy.pool import AsyncAdaptedQueuePool
 
-# Async engine with asyncpg driver
+from app.core.config import settings
+
+# Async engine with connection pooling (QueuePool for production)
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.DEBUG,
     future=True,
-    poolclass=NullPool,  # For simplicity; use QueuePool in production with proper pool settings
+    poolclass=AsyncAdaptedQueuePool,
+    pool_size=10,
+    max_overflow=20,
+    pool_pre_ping=True,
 )
 
 # Async session factory

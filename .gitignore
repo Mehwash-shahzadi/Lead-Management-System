@@ -1,6 +1,57 @@
-# Python
-.venv/
-venv/
 __pycache__/
-*.pyc
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual environment
+.venv/
+
+
+# dotenv
 .env
+
+# Alembic
+alembic/versions/*.pyc
+alembic/versions/*.pyo
+alembic/versions/__pycache__/
+alembic/versions/*.pyc
+
+# Pytest cache
+.cache/
+.pytest_cache/
+
+# MyPy and Pyright
+.mypy_cache/
+.pyright/
+
+# VS Code and IDE settings
+.vscode/
+.idea/
+
+# Docker volumes (if bind mounted locally)
+pgdata/
+redis-data/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Coverage reports
+htmlcov/
+coverage.xml
+*.cover
+
+# Local build artifacts
+build/
+dist/
+*.egg-info/
+
+# Redis dump (if any)
+dump.rdb
+
+
+API_Test_Samples.json
